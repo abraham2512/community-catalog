@@ -10,7 +10,7 @@ spec:
   description: |-
     Pipeline that updates JIRA issues from "Modified" to "On QA" status and adds build information as comments
     after a successful build. This pipeline is designed to run after builds complete
-    and automatically updates the status of related JIRA issues.
+    to automatically update the status of related JIRA issues.
   params:
     - name: dataPath
       description: Path to the JSON string of the merged data to use in the data workspace
@@ -18,7 +18,6 @@ spec:
     - name: buildInfo
       description: Information about the build that was generated (e.g., image digest, build ID, etc.)
       type: string
-
     - name: ociStorage
       description: The OCI repository where the Trusted Artifacts are stored
       type: string
@@ -51,21 +50,11 @@ spec:
       description: The workspace where the snapshot spec json file resides
   tasks:
     - name: update-jira-status
-      taskRef:
-        resolver: "git"
-        params:
-          - name: url
-            value: $(params.taskGitUrl)
-          - name: revision
-            value: $(params.taskGitRevision)
-          - name: pathInRepo
-            value: tasks/update-jira-status/update-jira-status.yaml
       params:
         - name: dataPath
           value: $(params.dataPath)
         - name: buildInfo
           value: $(params.buildInfo)
-
         - name: ociStorage
           value: $(params.ociStorage)
         - name: ociArtifactExpiresAfter
@@ -80,6 +69,203 @@ spec:
           value: $(params.taskGitUrl)
         - name: taskGitRevision
           value: $(params.taskGitRevision)
+        - name: dataDir
+          value: $(workspaces.data.path)
       workspaces:
         - name: data
-          workspace: data 
+          workspace: data
+      volumes:
+        - name: workdir
+          emptyDir: {}
+      stepTemplate:
+        volumeMounts:
+          - mountPath: /var/workdir
+            name: workdir
+        env:
+          - name: IMAGE_EXPIRES_AFTER
+            value: $(params.ociArtifactExpiresAfter)
+          - name: "ORAS_OPTIONS"
+            value: "$(params.orasOptions)"
+          - name: "DEBUG"
+            value: "$(params.trustedArtifactsDebug)"
+      steps:
+        - name: skip-trusted-artifact-operations
+          computeResources:
+            limits:
+              memory: 32Mi
+            requests:
+              memory: 32Mi
+              cpu: 20m
+          ref:
+            resolver: "git"
+            params:
+              - name: url
+                value: $(params.taskGitUrl)
+              - name: revision
+                value: $(params.taskGitRevision)
+              - name: pathInRepo
+                value: stepactions/skip-trusted-artifact-operations/skip-trusted-artifact-operations.yaml
+          params:
+            - name: ociStorage
+              value: $(params.ociStorage)
+            - name: workDir
+              value: $(workspaces.data.path)
+        - name: use-trusted-artifact
+          computeResources:
+            limits:
+              memory: 64Mi
+            requests:
+              memory: 64Mi
+              cpu: 30m
+          ref:
+            resolver: "git"
+            params:
+              - name: url
+                value: $(params.taskGitUrl)
+              - name: revision
+                value: $(params.taskGitRevision)
+              - name: pathInRepo
+                value: stepactions/use-trusted-artifact/use-trusted-artifact.yaml
+          params:
+            - name: workDir
+              value: $(workspaces.data.path)
+            - name: sourceDataArtifact
+              value: $(params.sourceDataArtifact)
+        - name: update-jira-issues
+          image: quay.io/konflux-ci/release-service-utils:b7f90a1dde20efe9a4063c1082c4f0ce31113bb1
+          computeResources:
+            limits:
+              memory: 32Mi
+            requests:
+              memory: 32Mi
+              cpu: 50m
+          env:
+            - name: ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: konflux-advisory-jira-secret
+                  key: token
+          script: |
+            #!/usr/bin/env bash
+            # We do not set -x here because it would leak the ACCESS_TOKEN
+            set -eu
+
+            ISSUE_TRACKERS='{
+                "Jira": {
+                    "api": "rest/api/2/issue",
+                    "servers": [
+                        "issues.redhat.com"
+                    ]
+                }
+            }'
+
+            DATA_FILE="$(workspaces.data.path)/$(params.dataPath)"
+            if [ ! -f "${DATA_FILE}" ] ; then
+                echo "No data JSON was provided."
+                exit 1
+            fi
+
+            NUM_ISSUES=$(jq -cr '.releaseNotes.issues.fixed | length' "${DATA_FILE}")
+            for ((i = 0; i < NUM_ISSUES; i++)); do
+                issue=$(jq -c --argjson i "$i" '.releaseNotes.issues.fixed[$i]' "${DATA_FILE}")
+                server=$(jq -r '.source' <<< "$issue")
+                if [ "$server" != "issues.redhat.com" ] ; then
+                    echo "This task currently only supports updating issues on issues.redhat.com"
+                    echo "Skipping issue $issue as it is on $server"
+                    continue
+                fi
+
+                CURL_ARGS=(
+                  -H "Authorization: Bearer $ACCESS_TOKEN"
+                  --retry 3
+                )
+
+                API=$(jq -r '.[] | select(.servers[] | contains("'"$server"'")) | .api' <<< "$ISSUE_TRACKERS")
+                API_URL="https://$(jq -r '.source' <<< "$issue")/${API}/$(jq -r '.id' <<< "$issue")"
+
+                # Get current status
+                CURRENT_STATUS=$(curl-with-retry "${CURL_ARGS[@]}" "${API_URL}" | jq -r '.fields.status.name')
+                echo "Current status of issue $issue: $CURRENT_STATUS"
+
+                # Check if issue is in "Modified" status
+                if [ "$CURRENT_STATUS" != "Modified" ] ; then
+                    echo "Issue $issue is not in Modified state (current: $CURRENT_STATUS). Skipping it."
+                    continue
+                fi
+
+                echo "Moving issue $issue from Modified to On QA"
+                
+                # Get the "On QA" transition id
+                if ! ON_QA_ID="$(curl-with-retry "${CURL_ARGS[@]}" "${API_URL}/transitions" \
+                  | jq -er '.transitions[] | select(.name=="On QA") | .id')"; then
+                    echo "Warning: failed to fetch the On QA state id for issue $issue. We most likely do not have" \
+                      "permission to transition it. Will try to add a comment instead."
+                    TRANSITION_RC=1
+                else
+                    # Move the issue to "On QA" status
+                    if ! curl-with-retry "${CURL_ARGS[@]}" -XPOST --data \
+                      '{"transition":{"id":"'"$ON_QA_ID"'"}}' \
+                      -H "Content-Type: application/json" "${API_URL}/transitions"; then
+                        echo "Warning: failed to transition issue $issue to On QA. Will try to add a comment instead."
+                        TRANSITION_RC=1
+                    else
+                        echo "Successfully moved issue $issue to On QA status"
+                        TRANSITION_RC=0
+                    fi
+                fi
+
+                # Add comment with build information
+                BUILD_COMMENT="Build completed and moved to QA status.\n\nBuild Information: $(params.buildInfo)\n\nThis issue has been moved from Modified to On QA status as part of the release process."
+
+                if ! curl-with-retry "${CURL_ARGS[@]}" -XPOST --data \
+                  '{"body":"'"$BUILD_COMMENT"'"}' \
+                  -H "Content-Type: application/json" "${API_URL}/comment"; then
+                    echo "Warning: failed to add comment to issue $issue."
+                else
+                    echo "Successfully added build comment to issue $issue"
+                fi
+            done
+        - name: create-trusted-artifact
+          computeResources:
+            limits:
+              memory: 128Mi
+            requests:
+              memory: 128Mi
+              cpu: 250m
+          ref:
+            resolver: "git"
+            params:
+              - name: url
+                value: $(params.taskGitUrl)
+              - name: revision
+                value: $(params.taskGitRevision)
+              - name: pathInRepo
+                value: stepactions/create-trusted-artifact/create-trusted-artifact.yaml
+          params:
+            - name: ociStorage
+              value: $(params.ociStorage)
+            - name: workDir
+              value: $(workspaces.data.path)
+            - name: sourceDataArtifact
+              value: $(results.sourceDataArtifact.path)
+        - name: patch-source-data-artifact-result
+          computeResources:
+            limits:
+              memory: 32Mi
+            requests:
+              memory: 32Mi
+              cpu: 20m
+          ref:
+            resolver: "git"
+            params:
+              - name: url
+                value: $(params.taskGitUrl)
+              - name: revision
+                value: $(params.taskGitRevision)
+              - name: pathInRepo
+                value: stepactions/patch-source-data-artifact-result/patch-source-data-artifact-result.yaml
+          params:
+            - name: ociStorage
+              value: $(params.ociStorage)
+            - name: sourceDataArtifact
+              value: $(results.sourceDataArtifact.path) 
