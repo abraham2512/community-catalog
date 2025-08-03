@@ -9,8 +9,8 @@ metadata:
 spec:
   description: |-
     Pipeline that updates JIRA issues from "Modified" to "On QA" status and adds build information as comments
-    after a successful build and advisory publication. This pipeline is designed to run after builds complete
-    and advisories are published to automatically update the status of related JIRA issues.
+    after a successful build. This pipeline is designed to run after builds complete
+    and automatically updates the status of related JIRA issues.
   params:
     - name: dataPath
       description: Path to the JSON string of the merged data to use in the data workspace
@@ -18,9 +18,7 @@ spec:
     - name: buildInfo
       description: Information about the build that was generated (e.g., image digest, build ID, etc.)
       type: string
-    - name: advisoryUrl
-      description: The URL of the advisory the issues were fixed in. This is added in a comment on the issue
-      type: string
+
     - name: ociStorage
       description: The OCI repository where the Trusted Artifacts are stored
       type: string
@@ -67,8 +65,7 @@ spec:
           value: $(params.dataPath)
         - name: buildInfo
           value: $(params.buildInfo)
-        - name: advisoryUrl
-          value: $(params.advisoryUrl)
+
         - name: ociStorage
           value: $(params.ociStorage)
         - name: ociArtifactExpiresAfter

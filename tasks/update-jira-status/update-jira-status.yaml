@@ -9,8 +9,8 @@ metadata:
 spec:
   description: >
     Tekton task to move Jira issues from "modified" to "on_qa" status and add build information as a comment.
-    It is meant to run after the advisory is published and build is generated.
-    A comment will be added to each issue with build information and a link to the advisory.
+    It is meant to run after the and build is generated.
+    A comment will be added to each issue with build information.
 
     Note: This task currently only supports issues in issues.redhat.com due to it requiring authentication.
     Issues in other servers will be skipped without the task failing.
@@ -21,6 +21,7 @@ spec:
     - name: buildInfo
       description: Information about the build that was generated (e.g., image digest, build ID, etc.)
       type: string
+
     - name: ociStorage
       description: The OCI repository where the Trusted Artifacts are stored
       type: string
@@ -199,8 +200,8 @@ spec:
                 fi
             fi
 
-            # Add comment with build information and advisory link
-            BUILD_COMMENT="Build completed and moved to QA status.\n\nBuild Information: $(params.buildInfo)\nAdvisory: $(params.advisoryUrl)\n\nThis issue has been moved from Modified to On QA status as part of the release process."
+            # Add comment with build information
+            BUILD_COMMENT="Build completed and moved to QA status.\n\nBuild Information: $(params.buildInfo)\n\nThis issue has been moved from Modified to On QA status as part of the release process."
 
             if ! curl-with-retry "${CURL_ARGS[@]}" -XPOST --data \
               '{"body":"'"$BUILD_COMMENT"'"}' \

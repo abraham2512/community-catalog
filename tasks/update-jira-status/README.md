@@ -18,10 +18,15 @@ The task supports authentication to JIRA using credentials stored in Kubernetes 
 | Name            | Description                                                           | Optional | Default value |
 |-----------------|-----------------------------------------------------------------------|----------|---------------|
 | `dataPath`      | Path to the JSON string of the merged data to use in the data workspace | No       | -             |
-| `advisoryUrl`   | The URL of the advisory the issues were fixed in. This is added in a comment on the issue | No       | -             |
 | `buildInfo`     | Information about the build that was generated (e.g., image digest, build ID, etc.) | No       | -             |
-| `jiraSecretName`| Name of secret which contains JIRA authentication credentials         | No       | -             |
-| `jiraUrl`       | The base URL of the JIRA instance (e.g., https://issues.redhat.com)   | No       | -             |
+| `ociStorage`    | The OCI repository where the Trusted Artifacts are stored | Yes      | "empty"       |
+| `ociArtifactExpiresAfter`| Expiration date for the trusted artifacts created in the OCI repository. An empty string means the artifacts do not expire | Yes      | "1d"          |
+| `trustedArtifactsDebug` | Flag to enable debug logging in trusted artifacts. Set to a non-empty string to enable | Yes      | ""            |
+| `orasOptions`   | oras options to pass to Trusted Artifacts calls | Yes      | ""            |
+| `sourceDataArtifact` | Location of trusted artifacts to be used to populate data directory | Yes      | ""            |
+| `dataDir`       | The location where data will be stored | Yes      | $(workspaces.data.path) |
+| `taskGitUrl`    | The url to the git repo where the release-service-catalog tasks and stepactions to be used are stored | Yes      | -             |
+| `taskGitRevision`| The revision in the taskGitUrl repo to be used | Yes      | -             |
 
 ## Results
 
@@ -61,17 +66,17 @@ data:
 This task is designed to be used as a step within a larger Tekton Pipeline. Here is an example of how to call this task:
 
 ```yaml
-- name: update-jira-on-qa
+- name: update-jira-status
   runAfter: ["build-and-push", "publish-advisory"]
   taskRef:
-    name: update-jira-on-qa
+    name: update-jira-status
   params:
     - name: dataPath
       value: "snapshot.json"
-    - name: advisoryUrl
-      value: "https://access.redhat.com/errata/RHBA-2024-1234"
     - name: buildInfo
       value: "Image: quay.io/org/repo:sha256-abc123, Build ID: 12345"
+    - name: taskGitRevision
+      value: "main"
   workspaces:
     - name: data
       workspace: release-data

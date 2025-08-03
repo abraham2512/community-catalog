@@ -1,15 +1,15 @@
 # update-jira-status (Pipeline)
 
-A Tekton `Pipeline` that updates JIRA issues from "Modified" to "On QA" status and adds build information as comments after a successful build and advisory publication.
+A Tekton `Pipeline` that updates JIRA issues from "Modified" to "On QA" status and adds build information as comments after a successful build.
 
 ## Overview
 
-This pipeline is designed to automatically update JIRA issues when builds complete successfully and advisories are published. It:
+This pipeline is designed to automatically update JIRA issues when builds complete successfully. It:
 
 1. Extracts JIRA issue information from the Release artifacts
 2. Checks if issues are in "Modified" status
 3. Moves issues from "Modified" to "On QA" status
-4. Adds a comment with build information and advisory link
+4. Adds a comment with build information
 
 The pipeline supports authentication to JIRA using credentials stored in Kubernetes secrets and can handle multiple JIRA issues per release.
 
@@ -19,7 +19,6 @@ The pipeline supports authentication to JIRA using credentials stored in Kuberne
 |-------------------------|-----------------------------------------------------------------------|----------|---------------|
 | `dataPath`              | Path to the JSON string of the merged data to use in the data workspace | No       | -             |
 | `buildInfo`             | Information about the build that was generated (e.g., image digest, build ID, etc.) | No       | -             |
-| `advisoryUrl`           | The URL of the advisory the issues were fixed in. This is added in a comment on the issue | No       | -             |
 | `ociStorage`            | The OCI repository where the Trusted Artifacts are stored | Yes      | "empty"       |
 | `ociArtifactExpiresAfter`| Expiration date for the trusted artifacts created in the OCI repository. An empty string means the artifacts do not expire | Yes      | "1d"          |
 | `trustedArtifactsDebug` | Flag to enable debug logging in trusted artifacts. Set to a non-empty string to enable | Yes      | ""            |
@@ -42,7 +41,7 @@ The main task that performs the JIRA issue updates. This task:
 
 - Processes JIRA issues from the release data
 - Moves issues from "Modified" to "On QA" status
-- Adds build information and advisory links as comments
+- Adds build information as comments
 - Handles trusted artifacts operations
 
 ## Prerequisites
@@ -87,7 +86,7 @@ rules:
 
 ## Usage Example
 
-This pipeline is designed to be used after builds complete and advisories are published. Here is an example of how to call this pipeline:
+This pipeline is designed to be used after builds complete. Here is an example of how to call this pipeline:
 
 ```yaml
 apiVersion: tekton.dev/v1
@@ -102,8 +101,6 @@ spec:
       value: "snapshot.json"
     - name: buildInfo
       value: "Image: quay.io/org/repo:sha256-abc123, Build ID: 12345"
-    - name: advisoryUrl
-      value: "https://access.redhat.com/errata/RHBA-2024-1234"
     - name: taskGitRevision
       value: "main"
   workspaces:
@@ -132,7 +129,6 @@ The pipeline requires:
 The comment added to each issue includes:
 * Build completion notification
 * Build information (provided via `buildInfo` parameter)
-* Advisory URL link
 * Status change explanation
 
 ## Error Handling
@@ -150,8 +146,7 @@ The pipeline includes comprehensive error handling:
 This pipeline is typically used in conjunction with other pipelines in the release process:
 
 1. **Build Pipeline**: Generates the build artifacts and build information
-2. **Advisory Publication Pipeline**: Publishes the advisory and provides the advisory URL
-3. **update-jira-status Pipeline**: Updates JIRA issues with build and advisory information
+2. **update-jira-status Pipeline**: Updates JIRA issues with build information
 
 ## Future Enhancements
 
