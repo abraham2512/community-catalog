@@ -1,0 +1,88 @@
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: update-jira-status
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/tags: release
+spec:
+  description: |-
+    Pipeline that updates JIRA issues from "Modified" to "On QA" status and adds build information as comments
+    after a successful build and advisory publication. This pipeline is designed to run after builds complete
+    and advisories are published to automatically update the status of related JIRA issues.
+  params:
+    - name: dataPath
+      description: Path to the JSON string of the merged data to use in the data workspace
+      type: string
+    - name: buildInfo
+      description: Information about the build that was generated (e.g., image digest, build ID, etc.)
+      type: string
+    - name: advisoryUrl
+      description: The URL of the advisory the issues were fixed in. This is added in a comment on the issue
+      type: string
+    - name: ociStorage
+      description: The OCI repository where the Trusted Artifacts are stored
+      type: string
+      default: "empty"
+    - name: ociArtifactExpiresAfter
+      description: Expiration date for the trusted artifacts created in the OCI repository. An empty string means the artifacts do not expire
+      type: string
+      default: "1d"
+    - name: trustedArtifactsDebug
+      description: Flag to enable debug logging in trusted artifacts. Set to a non-empty string to enable
+      type: string
+      default: ""
+    - name: orasOptions
+      description: oras options to pass to Trusted Artifacts calls
+      type: string
+      default: ""
+    - name: sourceDataArtifact
+      description: Location of trusted artifacts to be used to populate data directory
+      type: string
+      default: ""
+    - name: taskGitUrl
+      description: The url to the git repo where the release-service-catalog tasks and stepactions to be used are stored
+      type: string
+      default: https://github.com/konflux-ci/community-catalog.git
+    - name: taskGitRevision
+      description: The revision in the taskGitUrl repo to be used
+      type: string
+  workspaces:
+    - name: data
+      description: The workspace where the snapshot spec json file resides
+  tasks:
+    - name: update-jira-status
+      taskRef:
+        resolver: "git"
+        params:
+          - name: url
+            value: $(params.taskGitUrl)
+          - name: revision
+            value: $(params.taskGitRevision)
+          - name: pathInRepo
+            value: tasks/update-jira-status/update-jira-status.yaml
+      params:
+        - name: dataPath
+          value: $(params.dataPath)
+        - name: buildInfo
+          value: $(params.buildInfo)
+        - name: advisoryUrl
+          value: $(params.advisoryUrl)
+        - name: ociStorage
+          value: $(params.ociStorage)
+        - name: ociArtifactExpiresAfter
+          value: $(params.ociArtifactExpiresAfter)
+        - name: trustedArtifactsDebug
+          value: $(params.trustedArtifactsDebug)
+        - name: orasOptions
+          value: $(params.orasOptions)
+        - name: sourceDataArtifact
+          value: $(params.sourceDataArtifact)
+        - name: taskGitUrl
+          value: $(params.taskGitUrl)
+        - name: taskGitRevision
+          value: $(params.taskGitRevision)
+      workspaces:
+        - name: data
+          workspace: data 
