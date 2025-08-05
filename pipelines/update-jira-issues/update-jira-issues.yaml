@@ -2,7 +2,7 @@
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: update-jira-status
+  name: update-jira-issues
   annotations:
     tekton.dev/pipelines.minVersion: "0.12.1"
     tekton.dev/tags: release
@@ -49,7 +49,7 @@ spec:
     - name: data
       description: The workspace where the snapshot spec json file resides
   tasks:
-    - name: update-jira-status
+    - name: update-jira-issues
       params:
         - name: dataPath
           value: $(params.dataPath)
@@ -131,7 +131,7 @@ spec:
               value: $(workspaces.data.path)
             - name: sourceDataArtifact
               value: $(params.sourceDataArtifact)
-        - name: update-jira-issues
+        - name: update-jira-status
           image: quay.io/konflux-ci/release-service-utils:b7f90a1dde20efe9a4063c1082c4f0ce31113bb1
           computeResources:
             limits:
