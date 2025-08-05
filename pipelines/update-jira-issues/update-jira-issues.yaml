@@ -15,9 +15,11 @@ spec:
     - name: dataPath
       description: Path to the JSON string of the merged data to use in the data workspace
       type: string
+      default: "snapshot.json"
     - name: buildInfo
       description: Information about the build that was generated (e.g., image digest, build ID, etc.)
       type: string
+      default: "Build completed successfully"
     - name: ociStorage
       description: The OCI repository where the Trusted Artifacts are stored
       type: string
@@ -45,6 +47,7 @@ spec:
     - name: taskGitRevision
       description: The revision in the taskGitUrl repo to be used
       type: string
+      default: "main"
   workspaces:
     - name: data
       description: The workspace where the snapshot spec json file resides
@@ -279,4 +282,4 @@ spec:
               - name: ociStorage
                 value: $(params.ociStorage)
               - name: sourceDataArtifact
-                value: $(results.sourceDataArtifact.path) 
+                value: $(results.sourceDataArtifact.path)
